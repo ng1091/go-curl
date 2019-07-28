@@ -30,6 +30,7 @@ type Request struct {
 	Cookies         map[string]string
 	Queries         map[string]string
 	PostData        map[string]interface{}
+	Socks5	*Socks5Proxy
 }
 
 // 创建一个Request实例
@@ -157,18 +158,18 @@ func (this *Request) Send(url string, method string) (*Response, error) {
 	}
 	// 初始化Response对象
 	response := NewResponse()
+
+	// 初始化Dial
+	dial, err := this.newDial()
+	if err != nil {
+		return nil, err
+	}
+
 	// 初始化http.Client对象
 	this.cli = &http.Client{
 		////////
 		Transport: &http.Transport{
-			Dial: func(netw, addr string) (net.Conn, error) {
-				conn, err := net.DialTimeout(netw, addr, time.Second*this.dialTimeout)
-				if err != nil {
-					return nil, err
-				}
-				conn.SetDeadline(time.Now().Add(time.Second * this.dialTimeout))
-				return conn, nil
-			},
+			Dial: dial,
 			ResponseHeaderTimeout: time.Second * this.responseTimeOut,
 		},
 		////////////
@@ -209,4 +210,26 @@ func (this *Request) Send(url string, method string) (*Response, error) {
 	response.parseBody()
 
 	return response, nil
+}
+
+// 初始化http.Transport.Dial
+func (this *Request) newDial() (func(network, addr string) (net.Conn, error), error) {
+	dial := func(network, addr string) (net.Conn, error) {
+		conn, err := net.DialTimeout(network, addr, time.Second*this.dialTimeout)
+		if err != nil {
+			return nil, err
+		}
+		conn.SetDeadline(time.Now().Add(time.Second * this.dialTimeout))
+		return conn, nil
+	}
+
+	// 检查是否设置Socks5代理
+	if this.Socks5 != nil {
+		dial, err := this.newSocks5ProxyDial(dial)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	return dial, nil
 }
